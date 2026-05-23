@@ -56,8 +56,18 @@ public class SwitchingCapture extends SurfaceCapture {
         }
     }
 
-    public synchronized void switchSource(VideoSource newSource, int newDisplayId, String newCameraId) {
-        if (source == newSource && displayId == newDisplayId && (cameraId == null ? newCameraId == null : cameraId.equals(newCameraId))) {
+    public synchronized void switchSource(VideoSource newSource, int newDisplayId, int newMaxSize, float newMaxFps, String newCameraId, int newCameraWidth, int newCameraHeight, int newCameraFps) {
+        Size newCameraSize = (newCameraWidth > 0 && newCameraHeight > 0) ? new Size(newCameraWidth, newCameraHeight) : null;
+
+        boolean hasChanged = source != newSource
+                || displayId != newDisplayId
+                || (cameraId == null ? newCameraId != null : !cameraId.equals(newCameraId))
+                || options.getMaxSize() != newMaxSize
+                || options.getMaxFps() != newMaxFps
+                || (options.getCameraSize() == null ? newCameraSize != null : !options.getCameraSize().equals(newCameraSize))
+                || options.getCameraFps() != newCameraFps;
+
+        if (!hasChanged) {
             return;
         }
 
@@ -66,10 +76,13 @@ public class SwitchingCapture extends SurfaceCapture {
         cameraId = newCameraId;
 
         // Update options so that the new delegate is created with the new parameters
-        // Note: Options should ideally be cloned or modified carefully
         options.setVideoSource(newSource);
         options.setDisplayId(newDisplayId);
+        options.setMaxSize(newMaxSize);
+        options.setMaxFps(newMaxFps);
         options.setCameraId(newCameraId);
+        options.setCameraSize(newCameraSize);
+        options.setCameraFps(newCameraFps);
 
         if (delegate != null) {
             delegate.release();

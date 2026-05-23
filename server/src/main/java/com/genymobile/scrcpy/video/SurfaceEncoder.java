@@ -52,11 +52,13 @@ public class SurfaceEncoder implements AsyncProcessor {
 
     private final CaptureReset reset = new CaptureReset();
     private final com.genymobile.scrcpy.control.Controller controller;
+    private final Options options;
 
     public SurfaceEncoder(SurfaceCapture capture, Streamer streamer, com.genymobile.scrcpy.control.Controller controller, Options options) {
         this.capture = capture;
         this.streamer = streamer;
         this.controller = controller;
+        this.options = options;
         this.videoBitRate = options.getVideoBitRate();
         this.maxFps = options.getMaxFps();
         this.codecOptions = options.getVideoCodecOptions();
@@ -67,7 +69,6 @@ public class SurfaceEncoder implements AsyncProcessor {
     private void streamCapture() throws IOException, ConfigurationException {
         Codec codec = streamer.getCodec();
         MediaCodec mediaCodec = createMediaCodec(codec, encoderName);
-        MediaFormat format = createFormat(codec.getMimeType(), videoBitRate, maxFps, codecOptions);
 
         capture.init(reset);
 
@@ -84,6 +85,8 @@ public class SurfaceEncoder implements AsyncProcessor {
                     headerWritten = true;
                 }
 
+                float currentMaxFps = options.getVideoSource() == VideoSource.DISPLAY ? options.getMaxFps() : options.getCameraFps();
+                MediaFormat format = createFormat(codec.getMimeType(), videoBitRate, currentMaxFps, codecOptions);
                 format.setInteger(MediaFormat.KEY_WIDTH, size.getWidth());
                 format.setInteger(MediaFormat.KEY_HEIGHT, size.getHeight());
 

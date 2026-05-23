@@ -2,6 +2,7 @@ package com.genymobile.scrcpy.control;
 
 import com.genymobile.scrcpy.device.Position;
 import com.genymobile.scrcpy.util.Binary;
+import com.genymobile.scrcpy.video.VideoSource;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -173,14 +174,25 @@ public class ControlMessageReader {
 
     private ControlMessage parseSwitchVideoSource() throws IOException {
         int source = dis.readUnsignedByte();
+        VideoSource videoSource = source == 0 ? VideoSource.DISPLAY : VideoSource.CAMERA;
         int displayId = 0;
+        int maxSize = 0;
+        float maxFps = 0.0f;
         String cameraId = null;
-        if (source == 0) { // DISPLAY
+        int cameraWidth = 0;
+        int cameraHeight = 0;
+        int cameraFps = 0;
+        if (videoSource == VideoSource.DISPLAY) {
             displayId = dis.readInt();
-        } else { // CAMERA
+            maxSize = dis.readInt();
+            maxFps = dis.readFloat();
+        } else {
             cameraId = parseString(1);
+            cameraWidth = dis.readInt();
+            cameraHeight = dis.readInt();
+            cameraFps = dis.readInt();
         }
-        return ControlMessage.createSwitchVideoSource(source, displayId, cameraId);
+        return ControlMessage.createSwitchVideoSource(videoSource, displayId, maxSize, maxFps, cameraId, cameraWidth, cameraHeight, cameraFps);
     }
 
     private ControlMessage parsePauseResumeStream() throws IOException {

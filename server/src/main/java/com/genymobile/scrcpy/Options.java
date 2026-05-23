@@ -93,6 +93,22 @@ public class Options {
         this.cameraId = cameraId;
     }
 
+    public void setMaxSize(int maxSize) {
+        this.maxSize = maxSize;
+    }
+
+    public void setMaxFps(float maxFps) {
+        this.maxFps = maxFps;
+    }
+
+    public void setCameraSize(Size cameraSize) {
+        this.cameraSize = cameraSize;
+    }
+
+    public void setCameraFps(int cameraFps) {
+        this.cameraFps = cameraFps;
+    }
+
     public Ln.Level getLogLevel() {
         return logLevel;
     }

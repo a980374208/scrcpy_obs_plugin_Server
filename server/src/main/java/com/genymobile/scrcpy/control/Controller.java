@@ -398,10 +398,15 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
 
     private void switchVideoSource(ControlMessage msg) {
         if (surfaceCapture instanceof SwitchingCapture) {
-            VideoSource source = msg.getAction() == 0 ? VideoSource.DISPLAY : VideoSource.CAMERA;
-            int displayId = msg.getId();
-            String cameraId = msg.getText();
-            ((SwitchingCapture) surfaceCapture).switchSource(source, displayId, cameraId);
+            VideoSource source = msg.getVideoSource();
+            int displayId = msg.getDisplayIdVal();
+            int maxSize = msg.getMaxSize();
+            float maxFps = msg.getMaxFps();
+            String cameraId = msg.getCameraId();
+            int cameraWidth = msg.getCameraWidth();
+            int cameraHeight = msg.getCameraHeight();
+            int cameraFps = msg.getCameraFps();
+            ((SwitchingCapture) surfaceCapture).switchSource(source, displayId, maxSize, maxFps, cameraId, cameraWidth, cameraHeight, cameraFps);
         }
     }
 

@@ -1,6 +1,7 @@
 package com.genymobile.scrcpy.control;
 
 import com.genymobile.scrcpy.device.Position;
+import com.genymobile.scrcpy.video.VideoSource;
 
 /**
  * Union of all supported event types, identified by their {@code type}.
@@ -58,6 +59,15 @@ public final class ControlMessage {
     private int productId;
     private int streamType;
     private boolean pause;
+
+    private VideoSource videoSource;
+    private int displayIdVal;
+    private int maxSize;
+    private float maxFps;
+    private String cameraId;
+    private int cameraWidth;
+    private int cameraHeight;
+    private int cameraFps;
 
     private ControlMessage() {
     }
@@ -171,13 +181,50 @@ public final class ControlMessage {
         return msg;
     }
 
-    public static ControlMessage createSwitchVideoSource(int source, int displayId, String cameraId) {
+    public static ControlMessage createSwitchVideoSource(VideoSource videoSource, int displayId, int maxSize, float maxFps, String cameraId, int cameraWidth, int cameraHeight, int cameraFps) {
         ControlMessage msg = new ControlMessage();
         msg.type = TYPE_SWITCH_VIDEO_SOURCE;
-        msg.action = source; // reuse action for source type
-        msg.id = displayId; // reuse id for displayId
-        msg.text = cameraId; // reuse text for cameraId
+        msg.videoSource = videoSource;
+        msg.displayIdVal = displayId;
+        msg.maxSize = maxSize;
+        msg.maxFps = maxFps;
+        msg.cameraId = cameraId;
+        msg.cameraWidth = cameraWidth;
+        msg.cameraHeight = cameraHeight;
+        msg.cameraFps = cameraFps;
         return msg;
+    }
+
+    public VideoSource getVideoSource() {
+        return videoSource;
+    }
+
+    public int getDisplayIdVal() {
+        return displayIdVal;
+    }
+
+    public int getMaxSize() {
+        return maxSize;
+    }
+
+    public float getMaxFps() {
+        return maxFps;
+    }
+
+    public String getCameraId() {
+        return cameraId;
+    }
+
+    public int getCameraWidth() {
+        return cameraWidth;
+    }
+
+    public int getCameraHeight() {
+        return cameraHeight;
+    }
+
+    public int getCameraFps() {
+        return cameraFps;
     }
 
     public static ControlMessage createPauseResumeStream(int streamType, boolean pause) {
