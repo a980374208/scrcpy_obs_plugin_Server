@@ -402,7 +402,9 @@ public final class LogUtils {
                         Range<Integer>[] lowFpsRanges = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
                         if (lowFpsRanges != null) {
                             SortedSet<Integer> uniqueLowFps = getUniqueSet(lowFpsRanges);
-                            for (int fps : uniqueLowFps) {
+                            List<Integer> list = new ArrayList<>(uniqueLowFps);
+                            Collections.reverse(list);
+                            for (int fps : list) {
                                 fpsArray.put(fps);
                             }
                         }
