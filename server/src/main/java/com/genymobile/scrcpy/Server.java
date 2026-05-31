@@ -113,25 +113,28 @@ public final class Server {
             if (control) {
                 ControlChannel controlChannel = connection.getControlChannel();
                 controller = new Controller(controlChannel, cleanUp, options);
+                controller.setDesktopConnection(connection);
                 asyncProcessors.add(controller);
+            }
+
+            AudioSource audioSource = options.getAudioSource();
+            com.genymobile.scrcpy.audio.SwitchingAudioCapture switchingAudioCapture = new com.genymobile.scrcpy.audio.SwitchingAudioCapture(audioSource, options.getAudioDup());
+
+            if (controller != null) {
+                controller.setSwitchingAudioCapture(switchingAudioCapture);
             }
 
             if (audio) {
                 AudioCodec audioCodec = options.getAudioCodec();
-                AudioSource audioSource = options.getAudioSource();
-                AudioCapture audioCapture;
-                if (audioSource.isDirect()) {
-                    audioCapture = new AudioDirectCapture(audioSource);
-                } else {
-                    audioCapture = new AudioPlaybackCapture(options.getAudioDup());
-                }
-
                 Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
                 AsyncProcessor audioRecorder;
                 if (audioCodec == AudioCodec.RAW) {
-                    audioRecorder = new AudioRawRecorder(audioCapture, audioStreamer);
+                    audioRecorder = new AudioRawRecorder(switchingAudioCapture, audioStreamer);
                 } else {
-                    audioRecorder = new AudioEncoder(audioCapture, audioStreamer, options);
+                    audioRecorder = new AudioEncoder(switchingAudioCapture, audioStreamer, options);
+                }
+                if (controller != null) {
+                    controller.setAudioRecorder(audioRecorder);
                 }
                 asyncProcessors.add(audioRecorder);
             }

@@ -24,6 +24,8 @@ public final class Streamer {
 
     private final ByteBuffer headerBuffer = ByteBuffer.allocate(12);
 
+    private static boolean audioHeaderWritten = false;
+
     public Streamer(FileDescriptor fd, Codec codec, boolean sendCodecMeta, boolean sendFrameMeta) {
         this.fd = fd;
         this.codec = codec;
@@ -36,11 +38,12 @@ public final class Streamer {
     }
 
     public void writeAudioHeader() throws IOException {
-        if (sendCodecMeta) {
+        if (sendCodecMeta && !audioHeaderWritten) {
             ByteBuffer buffer = ByteBuffer.allocate(4);
             buffer.putInt(codec.getId());
             buffer.flip();
             IO.writeFully(fd, buffer);
+            audioHeaderWritten = true;
         }
     }
 

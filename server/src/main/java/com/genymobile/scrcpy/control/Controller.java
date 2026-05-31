@@ -20,6 +20,13 @@ import com.genymobile.scrcpy.video.SurfaceEncoder;
 import com.genymobile.scrcpy.wrappers.ClipboardManager;
 import com.genymobile.scrcpy.wrappers.InputManager;
 import com.genymobile.scrcpy.wrappers.ServiceManager;
+import com.genymobile.scrcpy.device.DesktopConnection;
+import com.genymobile.scrcpy.device.Streamer;
+import com.genymobile.scrcpy.audio.AudioCodec;
+import com.genymobile.scrcpy.audio.AudioRawRecorder;
+import com.genymobile.scrcpy.audio.AudioEncoder;
+import com.genymobile.scrcpy.audio.AudioSource;
+import com.genymobile.scrcpy.audio.SwitchingAudioCapture;
 
 import android.content.Intent;
 import android.os.Build;
@@ -106,11 +113,28 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
     private SurfaceEncoder surfaceEncoder;
     private volatile boolean videoPaused = false;
     private volatile boolean audioPaused = false;
+    private com.genymobile.scrcpy.audio.SwitchingAudioCapture switchingAudioCapture;
+
+    private DesktopConnection desktopConnection;
+    private Options options;
+    private AsyncProcessor audioRecorder;
 
     private static volatile Controller instance;
 
     public static Controller getInstance() {
         return instance;
+    }
+
+    public void setDesktopConnection(DesktopConnection desktopConnection) {
+        this.desktopConnection = desktopConnection;
+    }
+
+    public void setAudioRecorder(AsyncProcessor audioRecorder) {
+        this.audioRecorder = audioRecorder;
+    }
+
+    public void setSwitchingAudioCapture(com.genymobile.scrcpy.audio.SwitchingAudioCapture switchingAudioCapture) {
+        this.switchingAudioCapture = switchingAudioCapture;
     }
 
     public void setSurfaceEncoder(SurfaceEncoder surfaceEncoder) {
@@ -127,6 +151,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
 
     public Controller(ControlChannel controlChannel, CleanUp cleanUp, Options options) {
         instance = this;
+        this.options = options;
         this.displayId = options.getDisplayId();
         this.controlChannel = controlChannel;
         this.cleanUp = cleanUp;
@@ -271,6 +296,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
             thread.interrupt();
         }
         sender.stop();
+        stopAudioIfNeeded();
     }
 
     @Override
@@ -279,6 +305,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
             thread.join();
         }
         sender.join();
+        if (audioRecorder != null) {
+            audioRecorder.join();
+        }
     }
 
     private boolean handleEvent() throws IOException {
@@ -376,7 +405,8 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
     private void handlePauseResumeStream(ControlMessage msg) {
         int streamType = msg.getStreamType();
         boolean pause = msg.getPause();
-        Ln.i("Receive pause/resume stream command: streamType=" + streamType + ", pause=" + pause);
+        int audioSourceVal = msg.getAudioSource();
+        Ln.i("Receive pause/resume stream command: streamType=" + streamType + ", pause=" + pause + ", audioSource=" + audioSourceVal);
         if (streamType == 1 || streamType == 3) {
             boolean wasPaused = this.videoPaused;
             this.videoPaused = pause;
@@ -387,6 +417,79 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
         }
         if (streamType == 2 || streamType == 3) {
             this.audioPaused = pause;
+            if (pause) {
+                stopAudioIfNeeded();
+            } else {
+                AudioSource audioSource = mapAudioSource(audioSourceVal);
+                startAudioIfNeeded(audioSource);
+            }
+        }
+    }
+
+    private AudioSource mapAudioSource(int audioSourceVal) {
+        switch (audioSourceVal) {
+            case 1: // SC_AUDIO_SOURCE_OUTPUT
+                return AudioSource.OUTPUT;
+            case 2: // SC_AUDIO_SOURCE_MIC
+                return AudioSource.MIC;
+            case 3: // SC_AUDIO_SOURCE_PLAYBACK
+                return AudioSource.PLAYBACK;
+            case 4: // SC_AUDIO_SOURCE_MIC_UNPROCESSED
+                return AudioSource.MIC_UNPROCESSED;
+            case 5: // SC_AUDIO_SOURCE_MIC_CAMCORDER
+                return AudioSource.MIC_CAMCORDER;
+            case 6: // SC_AUDIO_SOURCE_MIC_VOICE_RECOGNITION
+                return AudioSource.MIC_VOICE_RECOGNITION;
+            default:
+                if (options != null) {
+                    return options.getAudioSource();
+                }
+                return AudioSource.OUTPUT;
+        }
+    }
+
+    private synchronized void startAudioIfNeeded(AudioSource audioSource) {
+        if (audioRecorder != null) {
+            if (switchingAudioCapture != null) {
+                switchingAudioCapture.switchSource(audioSource);
+            }
+            return;
+        }
+
+        if (desktopConnection == null || options == null) {
+            Ln.e("Cannot start audio: connection or options is null");
+            return;
+        }
+
+        Ln.i("Starting audio capture dynamically with source: " + audioSource);
+        AudioCodec audioCodec = options.getAudioCodec();
+        if (switchingAudioCapture == null) {
+            switchingAudioCapture = new SwitchingAudioCapture(audioSource, options.getAudioDup());
+        } else {
+            switchingAudioCapture.switchSource(audioSource);
+        }
+
+        try {
+            Streamer audioStreamer = new Streamer(desktopConnection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
+            if (audioCodec == AudioCodec.RAW) {
+                audioRecorder = new AudioRawRecorder(switchingAudioCapture, audioStreamer);
+            } else {
+                audioRecorder = new AudioEncoder(switchingAudioCapture, audioStreamer, options);
+            }
+
+            audioRecorder.start((fatalError) -> {
+                Ln.i("Dynamic audio recorder thread terminated. fatalError=" + fatalError);
+            });
+        } catch (Throwable t) {
+            Ln.e("Failed to start audio recorder dynamically", t);
+        }
+    }
+
+    private synchronized void stopAudioIfNeeded() {
+        if (audioRecorder != null) {
+            Ln.i("Stopping audio capture dynamically");
+            audioRecorder.stop();
+            audioRecorder = null;
         }
     }
 
@@ -397,8 +500,8 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
     }
 
     private void switchVideoSource(ControlMessage msg) {
+        VideoSource source = msg.getVideoSource();
         if (surfaceCapture instanceof SwitchingCapture) {
-            VideoSource source = msg.getVideoSource();
             int displayId = msg.getDisplayIdVal();
             int maxSize = msg.getMaxSize();
             float maxFps = msg.getMaxFps();
@@ -407,6 +510,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
             int cameraHeight = msg.getCameraHeight();
             int cameraFps = msg.getCameraFps();
             ((SwitchingCapture) surfaceCapture).switchSource(source, displayId, maxSize, maxFps, cameraId, cameraWidth, cameraHeight, cameraFps);
+        }
+        if (switchingAudioCapture != null) {
+            com.genymobile.scrcpy.audio.AudioSource audioSource = source == VideoSource.DISPLAY ? com.genymobile.scrcpy.audio.AudioSource.PLAYBACK : com.genymobile.scrcpy.audio.AudioSource.MIC;
+            switchingAudioCapture.switchSource(audioSource);
         }
     }
 

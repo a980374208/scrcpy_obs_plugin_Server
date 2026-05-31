@@ -198,7 +198,8 @@ public class ControlMessageReader {
     private ControlMessage parsePauseResumeStream() throws IOException {
         int streamType = dis.readUnsignedByte();
         boolean pause = dis.readBoolean();
-        return ControlMessage.createPauseResumeStream(streamType, pause);
+        int audioSource = dis.readUnsignedByte();
+        return ControlMessage.createPauseResumeStream(streamType, pause, audioSource);
     }
 
     private Position parsePosition() throws IOException {

@@ -71,13 +71,12 @@ public final class DesktopConnection implements Closeable {
                             sendDummyByte = false;
                         }
                     }
-                    if (audio) {
-                        audioSocket = localServerSocket.accept();
-                        if (sendDummyByte) {
-                            // send one byte so the client may read() to detect a connection error
-                            audioSocket.getOutputStream().write(0);
-                            sendDummyByte = false;
-                        }
+                    // 预先建立音频套接字连接（即使 audio == false 也是如此）
+                    audioSocket = localServerSocket.accept();
+                    if (sendDummyByte) {
+                        // send one byte so the client may read() to detect a connection error
+                        audioSocket.getOutputStream().write(0);
+                        sendDummyByte = false;
                     }
                     if (control) {
                         controlSocket = localServerSocket.accept();
@@ -92,9 +91,8 @@ public final class DesktopConnection implements Closeable {
                 if (video) {
                     videoSocket = connect(socketName);
                 }
-                if (audio) {
-                    audioSocket = connect(socketName);
-                }
+                // 预先建立音频套接字连接（即使 audio == false 也是如此）
+                audioSocket = connect(socketName);
                 if (control) {
                     controlSocket = connect(socketName);
                 }

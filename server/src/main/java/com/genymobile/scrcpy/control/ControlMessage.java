@@ -59,6 +59,7 @@ public final class ControlMessage {
     private int productId;
     private int streamType;
     private boolean pause;
+    private int audioSource;
 
     private VideoSource videoSource;
     private int displayIdVal;
@@ -227,12 +228,17 @@ public final class ControlMessage {
         return cameraFps;
     }
 
-    public static ControlMessage createPauseResumeStream(int streamType, boolean pause) {
+    public static ControlMessage createPauseResumeStream(int streamType, boolean pause, int audioSource) {
         ControlMessage msg = new ControlMessage();
         msg.type = TYPE_PAUSE_RESUME_STREAM;
         msg.streamType = streamType;
         msg.pause = pause;
+        msg.audioSource = audioSource;
         return msg;
+    }
+
+    public int getAudioSource() {
+        return audioSource;
     }
 
     public int getType() {
