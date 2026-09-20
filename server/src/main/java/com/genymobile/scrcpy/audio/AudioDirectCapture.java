@@ -128,9 +128,18 @@ public class AudioDirectCapture implements AudioCapture {
 
     @Override
     public void stop() {
-        if (recorder != null) {
-            // Will call .stop() if necessary, without throwing an IllegalStateException
-            recorder.release();
+        AudioRecord recorderRef = recorder;
+        recorder = null;
+        reader = null;
+        if (recorderRef != null) {
+            try {
+                // On some devices, release() alone does not unblock a pending read from REMOTE_SUBMIX.
+                recorderRef.stop();
+            } catch (IllegalStateException e) {
+                // The recorder may not have reached the recording state if start() failed.
+            } finally {
+                recorderRef.release();
+            }
         }
     }
 

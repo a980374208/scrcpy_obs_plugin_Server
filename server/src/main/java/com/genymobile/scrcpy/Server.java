@@ -1,12 +1,11 @@
 package com.genymobile.scrcpy;
 
-import com.genymobile.scrcpy.audio.AudioCapture;
 import com.genymobile.scrcpy.audio.AudioCodec;
-import com.genymobile.scrcpy.audio.AudioDirectCapture;
 import com.genymobile.scrcpy.audio.AudioEncoder;
-import com.genymobile.scrcpy.audio.AudioPlaybackCapture;
 import com.genymobile.scrcpy.audio.AudioRawRecorder;
+import com.genymobile.scrcpy.audio.AudioRecorderLifecycle;
 import com.genymobile.scrcpy.audio.AudioSource;
+import com.genymobile.scrcpy.audio.SwitchingAudioCapture;
 import com.genymobile.scrcpy.control.ControlChannel;
 import com.genymobile.scrcpy.control.Controller;
 import com.genymobile.scrcpy.device.ConfigurationException;
@@ -113,30 +112,25 @@ public final class Server {
             if (control) {
                 ControlChannel controlChannel = connection.getControlChannel();
                 controller = new Controller(controlChannel, cleanUp, options);
-                controller.setDesktopConnection(connection);
                 asyncProcessors.add(controller);
             }
 
-            AudioSource audioSource = options.getAudioSource();
-            com.genymobile.scrcpy.audio.SwitchingAudioCapture switchingAudioCapture = new com.genymobile.scrcpy.audio.SwitchingAudioCapture(audioSource, options.getAudioDup());
-
-            if (controller != null) {
-                controller.setSwitchingAudioCapture(switchingAudioCapture);
-            }
-
-            if (audio) {
+            if (audio || controller != null) {
+                AudioSource audioSource = options.getAudioSource();
+                SwitchingAudioCapture switchingAudioCapture = new SwitchingAudioCapture(audioSource, options.getAudioDup());
                 AudioCodec audioCodec = options.getAudioCodec();
-                Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
-                AsyncProcessor audioRecorder;
-                if (audioCodec == AudioCodec.RAW) {
-                    audioRecorder = new AudioRawRecorder(switchingAudioCapture, audioStreamer);
-                } else {
-                    audioRecorder = new AudioEncoder(switchingAudioCapture, audioStreamer, options);
-                }
+                Streamer.AudioStreamState audioStreamState = new Streamer.AudioStreamState();
+                AudioRecorderLifecycle audioRecorderLifecycle = new AudioRecorderLifecycle(audio, audioSource, controller != null, source -> {
+                    switchingAudioCapture.switchSource(source);
+                    Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta(),
+                            audioStreamState);
+                    return audioCodec == AudioCodec.RAW ? new AudioRawRecorder(switchingAudioCapture, audioStreamer)
+                            : new AudioEncoder(switchingAudioCapture, audioStreamer, options);
+                });
                 if (controller != null) {
-                    controller.setAudioRecorder(audioRecorder);
+                    controller.setAudioRecorderLifecycle(audioRecorderLifecycle);
                 }
-                asyncProcessors.add(audioRecorder);
+                asyncProcessors.add(audioRecorderLifecycle);
             }
 
             if (video) {

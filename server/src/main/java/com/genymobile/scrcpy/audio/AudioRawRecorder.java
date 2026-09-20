@@ -11,6 +11,7 @@ import android.os.Build;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class AudioRawRecorder implements AsyncProcessor {
 
@@ -18,6 +19,7 @@ public final class AudioRawRecorder implements AsyncProcessor {
     private final Streamer streamer;
 
     private Thread thread;
+    private final AtomicBoolean stopRequested = new AtomicBoolean();
 
     public AudioRawRecorder(AudioCapture capture, Streamer streamer) {
         this.capture = capture;
@@ -35,6 +37,9 @@ public final class AudioRawRecorder implements AsyncProcessor {
         final MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
 
         try {
+            if (stopRequested.get()) {
+                return;
+            }
             try {
                 capture.start();
             } catch (Throwable t) {
@@ -43,8 +48,12 @@ public final class AudioRawRecorder implements AsyncProcessor {
                 throw t;
             }
 
+            if (stopRequested.get()) {
+                return;
+            }
+
             streamer.writeAudioHeader();
-            while (!Thread.currentThread().isInterrupted()) {
+            while (!stopRequested.get() && !Thread.currentThread().isInterrupted()) {
                 buffer.position(0);
                 int r = capture.read(buffer, bufferInfo);
                 if (r < 0) {
@@ -88,6 +97,8 @@ public final class AudioRawRecorder implements AsyncProcessor {
 
     @Override
     public void stop() {
+        stopRequested.set(true);
+        capture.stop();
         if (thread != null) {
             thread.interrupt();
         }

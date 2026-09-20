@@ -178,10 +178,9 @@ public final class AudioEncoder implements AsyncProcessor {
 
     @Override
     public void stop() {
-        if (thread != null) {
-            // Just wake up the blocking wait from the thread, so that it properly releases all its resources and terminates
-            end();
-        }
+        end();
+        // AudioRecord.read() does not use Java interruption for cancellation. Release the capture before join() so a blocking read can return.
+        capture.stop();
     }
 
     @Override
@@ -280,6 +279,8 @@ public final class AudioEncoder implements AsyncProcessor {
             throw e;
         } finally {
             // Cleanup everything (either at the end or on error at any step of the initialization)
+            // This must happen before inputThread.join(): the input thread may be blocked in AudioRecord.read().
+            capture.stop();
             if (mediaCodecThread != null) {
                 Looper looper = mediaCodecThread.getLooper();
                 if (looper != null) {
@@ -313,9 +314,6 @@ public final class AudioEncoder implements AsyncProcessor {
                     mediaCodec.stop();
                 }
                 mediaCodec.release();
-            }
-            if (capture != null) {
-                capture.stop();
             }
         }
     }

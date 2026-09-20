@@ -17,20 +17,42 @@ public final class Streamer {
     private static final long PACKET_FLAG_CONFIG = 1L << 63;
     private static final long PACKET_FLAG_KEY_FRAME = 1L << 62;
 
-    private final FileDescriptor fd;
     private final Codec codec;
     private final boolean sendCodecMeta;
     private final boolean sendFrameMeta;
+    private final AudioStreamState audioStreamState;
+    private final ByteWriter writer;
 
     private final ByteBuffer headerBuffer = ByteBuffer.allocate(12);
 
-    private static boolean audioHeaderWritten = false;
+    interface ByteWriter {
+        void write(ByteBuffer buffer) throws IOException;
+    }
+
+    public static final class AudioStreamState {
+        private enum Phase {
+            CODEC_ID,
+            PACKETS,
+            DISABLED,
+        }
+
+        private Phase phase = Phase.CODEC_ID;
+    }
 
     public Streamer(FileDescriptor fd, Codec codec, boolean sendCodecMeta, boolean sendFrameMeta) {
-        this.fd = fd;
+        this(codec, sendCodecMeta, sendFrameMeta, null, buffer -> IO.writeFully(fd, buffer));
+    }
+
+    public Streamer(FileDescriptor fd, Codec codec, boolean sendCodecMeta, boolean sendFrameMeta, AudioStreamState audioStreamState) {
+        this(codec, sendCodecMeta, sendFrameMeta, audioStreamState, buffer -> IO.writeFully(fd, buffer));
+    }
+
+    Streamer(Codec codec, boolean sendCodecMeta, boolean sendFrameMeta, AudioStreamState audioStreamState, ByteWriter writer) {
         this.codec = codec;
         this.sendCodecMeta = sendCodecMeta;
         this.sendFrameMeta = sendFrameMeta;
+        this.audioStreamState = audioStreamState;
+        this.writer = writer;
     }
 
     public Codec getCodec() {
@@ -38,12 +60,24 @@ public final class Streamer {
     }
 
     public void writeAudioHeader() throws IOException {
-        if (sendCodecMeta && !audioHeaderWritten) {
-            ByteBuffer buffer = ByteBuffer.allocate(4);
-            buffer.putInt(codec.getId());
-            buffer.flip();
-            IO.writeFully(fd, buffer);
-            audioHeaderWritten = true;
+        if (audioStreamState == null) {
+            throw new IllegalStateException("Audio stream state is not configured");
+        }
+
+        synchronized (audioStreamState) {
+            if (audioStreamState.phase == AudioStreamState.Phase.DISABLED) {
+                throw new IOException("Audio stream was disabled before packet streaming started");
+            }
+            if (audioStreamState.phase == AudioStreamState.Phase.PACKETS) {
+                return;
+            }
+            if (sendCodecMeta) {
+                ByteBuffer buffer = ByteBuffer.allocate(4);
+                buffer.putInt(codec.getId());
+                buffer.flip();
+                writer.write(buffer);
+            }
+            audioStreamState.phase = AudioStreamState.Phase.PACKETS;
         }
     }
 
@@ -54,19 +88,34 @@ public final class Streamer {
             buffer.putInt(videoSize.getWidth());
             buffer.putInt(videoSize.getHeight());
             buffer.flip();
-            IO.writeFully(fd, buffer);
+            writer.write(buffer);
         }
     }
 
     public void writeDisableStream(boolean error) throws IOException {
+        tryWriteDisableStream(error);
+    }
+
+    boolean tryWriteDisableStream(boolean error) throws IOException {
+        if (audioStreamState == null) {
+            throw new IllegalStateException("Audio stream state is not configured");
+        }
+
         // Writing a specific code as codec-id means that the device disables the stream
         //   code 0: it explicitly disables the stream (because it could not capture audio), scrcpy should continue mirroring video only
         //   code 1: a configuration error occurred, scrcpy must be stopped
-        byte[] code = new byte[4];
-        if (error) {
-            code[3] = 1;
+        // These codes are only valid before the stream enters the packet-framing phase.
+        synchronized (audioStreamState) {
+            if (!sendCodecMeta || audioStreamState.phase != AudioStreamState.Phase.CODEC_ID) {
+                return false;
+            }
+            ByteBuffer buffer = ByteBuffer.allocate(4);
+            buffer.putInt(error ? 1 : 0);
+            buffer.flip();
+            writer.write(buffer);
+            audioStreamState.phase = AudioStreamState.Phase.DISABLED;
+            return true;
         }
-        IO.writeFully(fd, code, 0, code.length);
     }
 
     public void writePacket(ByteBuffer buffer, long pts, boolean config, boolean keyFrame) throws IOException {
@@ -78,11 +127,24 @@ public final class Streamer {
             }
         }
 
+        if (audioStreamState != null) {
+            synchronized (audioStreamState) {
+                if (audioStreamState.phase != AudioStreamState.Phase.PACKETS) {
+                    throw new IOException("Audio packet stream has not started");
+                }
+                writePacketInternal(buffer, pts, config, keyFrame);
+            }
+        } else {
+            writePacketInternal(buffer, pts, config, keyFrame);
+        }
+    }
+
+    private void writePacketInternal(ByteBuffer buffer, long pts, boolean config, boolean keyFrame) throws IOException {
         if (sendFrameMeta) {
-            writeFrameMeta(fd, buffer.remaining(), pts, config, keyFrame);
+            writeFrameMeta(buffer.remaining(), pts, config, keyFrame);
         }
 
-        IO.writeFully(fd, buffer);
+        writer.write(buffer);
     }
 
     public void writePacket(ByteBuffer codecBuffer, MediaCodec.BufferInfo bufferInfo) throws IOException {
@@ -92,7 +154,7 @@ public final class Streamer {
         writePacket(codecBuffer, pts, config, keyFrame);
     }
 
-    private void writeFrameMeta(FileDescriptor fd, int packetSize, long pts, boolean config, boolean keyFrame) throws IOException {
+    private void writeFrameMeta(int packetSize, long pts, boolean config, boolean keyFrame) throws IOException {
         headerBuffer.clear();
 
         long ptsAndFlags;
@@ -108,7 +170,7 @@ public final class Streamer {
         headerBuffer.putLong(ptsAndFlags);
         headerBuffer.putInt(packetSize);
         headerBuffer.flip();
-        IO.writeFully(fd, headerBuffer);
+        writer.write(headerBuffer);
     }
 
     private static void fixOpusConfigPacket(ByteBuffer buffer) throws IOException {
